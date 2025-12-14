@@ -29,25 +29,30 @@ class FunnelReporter {
     if (result.status === 'failed' || result.status === 'timedOut') {
       this.results.failed++;
       
+      const specFile = path.basename(test.location.file);
       const stepName = this.extractFailedStep(result) || 'Unknown step';
       const errorMessage = this.normalizeError(result.error?.message || 'Unknown error');
       const traceFile = this.findTraceFile(result);
       
-      if (!this.results.failures[stepName]) {
-        this.results.failures[stepName] = {};
+      if (!this.results.failures[specFile]) {
+        this.results.failures[specFile] = {};
       }
       
-      if (!this.results.failures[stepName][errorMessage]) {
-        this.results.failures[stepName][errorMessage] = {
+      if (!this.results.failures[specFile][stepName]) {
+        this.results.failures[specFile][stepName] = {};
+      }
+      
+      if (!this.results.failures[specFile][stepName][errorMessage]) {
+        this.results.failures[specFile][stepName][errorMessage] = {
           count: 0,
           traces: []
         };
       }
       
-      this.results.failures[stepName][errorMessage].count++;
+      this.results.failures[specFile][stepName][errorMessage].count++;
       
       if (traceFile) {
-        this.results.failures[stepName][errorMessage].traces.push({
+        this.results.failures[specFile][stepName][errorMessage].traces.push({
           testId: test.id,
           title: test.title,
           trace: traceFile,
