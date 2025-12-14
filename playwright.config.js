@@ -20,7 +20,7 @@ module.exports = defineConfig({
   workers: process.env.WORKERS ? parseInt(process.env.WORKERS) : 5,
   
   use: {
-    headless: true,
+    headless: false,
     baseURL: 'https://www.demoblaze.com',
     trace: 'on',
     screenshot: 'on',
