@@ -208,9 +208,12 @@ function generateDashboard(results) {
     .trace-link {
       background: #3b82f6; color: white; padding: 5px 10px;
       border-radius: 6px; text-decoration: none; font-size: 11px;
-      transition: background 0.2s; border: none; cursor: pointer;
+      transition: all 0.2s; border: none; cursor: pointer;
     }
     .trace-link:hover { background: #2563eb; }
+    .trace-link:disabled { opacity: 0.7; cursor: wait; }
+    .trace-link.viewed { background: #22c55e; }
+    .trace-link.viewed:hover { background: #16a34a; }
     
     .no-failures {
       text-align: center; padding: 40px; color: #4ade80;
@@ -275,17 +278,44 @@ function generateDashboard(results) {
       });
     });
 
-    function openTraceViewer(tracePath) {
-      fetch('/api/show-trace?path=' + encodeURIComponent(tracePath))
-        .then(r => r.json())
-        .then(data => {
-          if (data.success) {
-            console.log('Trace viewer opened');
-          } else {
-            alert('Could not open trace: ' + data.error);
-          }
-        })
-        .catch(err => alert('Error: ' + err.message));
+    function openTraceViewer(tracePath, btn) {
+      // Mark button as loading
+      const originalText = btn.textContent;
+      btn.textContent = '⏳ Opening...';
+      btn.disabled = true;
+      
+      // Check if running on HTTPS (S3/remote) or localhost
+      const isRemote = window.location.protocol === 'https:';
+      
+      if (isRemote) {
+        // For S3/remote: open trace.playwright.dev with full URL
+        const fullUrl = window.location.origin + tracePath;
+        const viewerUrl = 'https://trace.playwright.dev/?trace=' + encodeURIComponent(fullUrl);
+        window.open(viewerUrl, '_blank');
+        btn.textContent = '✅ Viewed';
+        btn.classList.add('viewed');
+        btn.disabled = false;
+      } else {
+        // For localhost: use local Playwright trace viewer
+        fetch('/api/show-trace?path=' + encodeURIComponent(tracePath))
+          .then(r => r.json())
+          .then(data => {
+            if (data.success) {
+              btn.textContent = '✅ Viewed';
+              btn.classList.add('viewed');
+              btn.disabled = false;
+            } else {
+              btn.textContent = originalText;
+              btn.disabled = false;
+              alert('Could not open trace: ' + data.error);
+            }
+          })
+          .catch(err => {
+            btn.textContent = originalText;
+            btn.disabled = false;
+            alert('Error: ' + err.message);
+          });
+      }
     }
   </script>
 </body>
@@ -311,12 +341,14 @@ function generateFailuresHTML(failures) {
       const errorsHTML = Object.keys(errors).map(errorMsg => {
         const errorData = errors[errorMsg];
         
-        const tracesHTML = errorData.traces.map(t => {
+        const tracesHTML = errorData.traces.map((t, idx) => {
           const tracePath = t.trace ? `/test-results/${t.trace.replace('test-results/', '')}` : '#';
+          const runNum = idx + 1;
+          const btnId = 'trace-btn-' + Math.random().toString(36).substr(2, 9);
           return `
           <div class="trace-item">
-            <span class="trace-info">${escapeHtml(t.timestamp)}</span>
-            <button class="trace-link" onclick="openTraceViewer('${tracePath}')">📋 View Trace</button>
+            <span class="trace-info">Run #${runNum}</span>
+            <button class="trace-link" id="${btnId}" onclick="openTraceViewer('${tracePath}', this)">📋 View Trace</button>
           </div>
         `;
         }).join('');
