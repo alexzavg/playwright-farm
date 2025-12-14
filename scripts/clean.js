@@ -8,9 +8,9 @@ console.log('🧹 Cleaning up...');
 
 // Kill process on port
 try {
-  const pid = execSync(`lsof -ti:${REPORT_PORT}`, { encoding: 'utf-8' }).trim();
-  if (pid) {
-    execSync(`kill -9 ${pid}`);
+  const pid = execSync(`lsof -ti:${REPORT_PORT} 2>/dev/null`, { encoding: 'utf-8' }).trim();
+  if (pid && /^\d+$/.test(pid)) {
+    execSync(`kill -9 ${pid} 2>/dev/null`);
     console.log(`   Killed process on port ${REPORT_PORT}`);
   }
 } catch (e) {

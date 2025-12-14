@@ -1,404 +1,270 @@
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
-const { execSync } = require('child_process');
+const { execSync, spawn } = require('child_process');
 
 const PORT = 8080;
 const REPORT_DIR = path.join(process.cwd(), 'report');
-const RESULTS_DIR = path.join(process.cwd(), 'test-results');
-
-// Generate dashboard first
 const resultsPath = path.join(REPORT_DIR, 'funnel-results.json');
 
 if (!fs.existsSync(resultsPath)) {
-  console.error('❌ No results found. Run tests first: npm run test:load');
+  console.error('No results found. Run tests first.');
   process.exit(1);
 }
 
-// Kill any existing process on port
 try {
   const pid = execSync(`lsof -ti:${PORT}`, { encoding: 'utf-8' }).trim();
-  if (pid) {
-    execSync(`kill -9 ${pid}`);
-    console.log(`Killed existing process on port ${PORT}`);
-  }
+  if (pid) execSync(`kill -9 ${pid}`);
 } catch (e) {}
 
 const results = JSON.parse(fs.readFileSync(resultsPath, 'utf-8'));
+fs.writeFileSync(path.join(REPORT_DIR, 'dashboard.html'), generateHTML(results));
 
-const dashboardHTML = generateDashboard(results);
-fs.writeFileSync(path.join(REPORT_DIR, 'dashboard.html'), dashboardHTML);
+const MIME = { '.html': 'text/html', '.json': 'application/json', '.zip': 'application/zip' };
 
-// Serve files
-const MIME_TYPES = {
-  '.html': 'text/html',
-  '.js': 'application/javascript',
-  '.css': 'text/css',
-  '.json': 'application/json',
-  '.zip': 'application/zip',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.webm': 'video/webm',
-};
-
-const server = http.createServer((req, res) => {
-  // Handle CORS preflight
+http.createServer((req, res) => {
+  const headers = { 'Access-Control-Allow-Origin': '*' };
+  
   if (req.method === 'OPTIONS') {
-    res.writeHead(200, {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, OPTIONS',
-      'Access-Control-Allow-Headers': '*'
-    });
-    res.end();
-    return;
+    res.writeHead(200, headers);
+    return res.end();
   }
 
-  // API to open trace viewer
   if (req.url.startsWith('/api/show-trace?')) {
-    const tracePath = decodeURIComponent(req.url.split('path=')[1]);
-    const fullPath = path.join(process.cwd(), tracePath);
-    
-    if (fs.existsSync(fullPath)) {
-      const { spawn } = require('child_process');
-      spawn('npx', ['playwright', 'show-trace', fullPath], { 
-        detached: true, 
-        stdio: 'ignore' 
-      }).unref();
-      
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ success: true }));
-    } else {
-      res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Trace not found' }));
+    const p = path.join(process.cwd(), decodeURIComponent(req.url.split('path=')[1]));
+    if (fs.existsSync(p)) {
+      spawn('npx', ['playwright', 'show-trace', p], { detached: true, stdio: 'ignore' }).unref();
+      res.writeHead(200, { ...headers, 'Content-Type': 'application/json' });
+      return res.end('{"success":true}');
     }
-    return;
+    res.writeHead(404, { ...headers, 'Content-Type': 'application/json' });
+    return res.end('{"error":"Not found"}');
   }
 
-  let filePath;
-  
-  if (req.url === '/' || req.url === '/dashboard.html') {
-    filePath = path.join(REPORT_DIR, 'dashboard.html');
-  } else if (req.url.startsWith('/test-results/')) {
-    filePath = path.join(process.cwd(), req.url);
-  } else {
-    filePath = path.join(REPORT_DIR, req.url);
-  }
+  let file = req.url === '/' ? path.join(REPORT_DIR, 'dashboard.html') :
+    req.url.startsWith('/test-results/') ? path.join(process.cwd(), req.url) :
+    path.join(REPORT_DIR, req.url);
 
-  if (!fs.existsSync(filePath)) {
+  if (!fs.existsSync(file)) {
     res.writeHead(404);
-    res.end('Not found');
-    return;
+    return res.end('Not found');
   }
 
-  const ext = path.extname(filePath);
-  const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-  
-  res.writeHead(200, { 
-    'Content-Type': contentType,
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, OPTIONS',
-    'Access-Control-Allow-Headers': '*'
-  });
-  fs.createReadStream(filePath).pipe(res);
+  res.writeHead(200, { ...headers, 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream' });
+  fs.createReadStream(file).pipe(res);
+}).listen(PORT, () => {
+  console.log(`Dashboard: http://localhost:${PORT}`);
+  try { execSync(`open http://localhost:${PORT}`); } catch (e) {}
 });
 
-server.listen(PORT, () => {
-  console.log(`\n📊 Dashboard ready at http://localhost:${PORT}\n`);
-  
-  // Open in browser
-  try {
-    execSync(`open http://localhost:${PORT}`);
-  } catch (e) {}
-});
+function esc(t) {
+  return t ? String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;') : '';
+}
 
-function generateDashboard(results) {
+function generateHTML(r) {
+  const rate = r.total > 0 ? ((r.passed / r.total) * 100).toFixed(1) : 0;
+  
+  let failuresHTML = '';
+  if (Object.keys(r.failures).length === 0) {
+    failuresHTML = '<p class="all-pass">All tests passed!</p>';
+  } else {
+    for (const [spec, steps] of Object.entries(r.failures)) {
+      let specTotal = 0;
+      let stepsHTML = '';
+      
+      for (const [step, errors] of Object.entries(steps)) {
+        let stepTotal = 0;
+        let errorsHTML = '';
+        
+        for (const [err, data] of Object.entries(errors)) {
+          stepTotal += data.count;
+          let tracesHTML = data.traces.map((t, i) => {
+            const p = t.trace ? `/test-results/${t.trace.replace('test-results/', '')}` : '#';
+            return `<div class="trace-row">Run #${i + 1} <button class="trace-btn" onclick="openTrace('${p}',this)">View</button></div>`;
+          }).join('');
+          
+          errorsHTML += `<details class="error-details"><summary class="error-sum">${esc(err)} <b>(${data.count}x)</b></summary>${tracesHTML}</details>`;
+        }
+        specTotal += stepTotal;
+        stepsHTML += `<details class="step-details"><summary class="step-sum">${esc(step)} <b>(${stepTotal}x)</b></summary>${errorsHTML}</details>`;
+      }
+      failuresHTML += `<details class="spec-details"><summary class="spec-sum">${esc(spec)} - ${specTotal} failures</summary>${stepsHTML}</details>`;
+    }
+  }
+
   return `<!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Funnel Load Test Dashboard</title>
+  <title>Load Test Results</title>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+    * { box-sizing: border-box; }
     body { 
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #0f172a; color: #e2e8f0; padding: 20px;
-    }
-    .container { max-width: 1200px; margin: 0 auto; }
-    h1 { margin-bottom: 20px; color: #f8fafc; }
-    
-    .stats {
-      display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px;
-      margin-bottom: 30px;
-    }
-    .stat-card {
-      background: #1e293b; padding: 20px; border-radius: 12px;
-      text-align: center;
-    }
-    .stat-value { font-size: 36px; font-weight: bold; }
-    .stat-label { color: #94a3b8; margin-top: 5px; }
-    .stat-card.passed .stat-value { color: #4ade80; }
-    .stat-card.failed .stat-value { color: #f87171; }
-    .stat-card.rate .stat-value { color: #60a5fa; }
-    
-    .failures-section { margin-top: 30px; }
-    .failures-section h2 { margin-bottom: 15px; color: #f87171; }
-    
-    .spec-group {
-      background: #1e293b; border-radius: 12px; margin-bottom: 15px;
-      overflow: hidden;
-    }
-    .spec-header {
-      padding: 15px 20px; cursor: pointer; display: flex;
-      justify-content: space-between; align-items: center;
-      background: #7c3aed; transition: background 0.2s;
-    }
-    .spec-header:hover { background: #6d28d9; }
-    .spec-name { font-weight: 600; font-size: 16px; }
-    .spec-count {
-      background: rgba(255,255,255,0.2); color: white; padding: 4px 12px;
-      border-radius: 20px; font-size: 14px;
-    }
-    .spec-content { display: none; }
-    .spec-group.open .spec-content { display: block; }
-    .spec-group.open .spec-header { border-bottom: 1px solid #6d28d9; }
-    
-    .step-group { border-top: 1px solid #334155; }
-    .step-header {
-      padding: 12px 20px 12px 30px; cursor: pointer; display: flex;
-      justify-content: space-between; align-items: center;
-      background: #334155; transition: background 0.2s;
-    }
-    .step-header:hover { background: #475569; }
-    .step-name { font-weight: 600; font-size: 14px; color: #f87171; }
-    .step-count {
-      background: #ef4444; color: white; padding: 3px 10px;
-      border-radius: 15px; font-size: 12px;
-    }
-    .step-content { display: none; }
-    .step-group.open .step-content { display: block; }
-    .step-group.open .step-header { background: #475569; }
-    
-    .error-group { border-top: 1px solid #1e293b; }
-    .error-header {
-      padding: 10px 20px 10px 50px; cursor: pointer;
-      display: flex; justify-content: space-between; align-items: center;
-      transition: background 0.2s;
-    }
-    .error-header:hover { background: #334155; }
-    .error-message {
-      color: #fbbf24; font-family: monospace; font-size: 12px;
-      flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    }
-    .error-count {
-      background: #f59e0b; color: #1e293b; padding: 2px 8px;
-      border-radius: 10px; font-size: 11px; margin-left: 10px; flex-shrink: 0;
+      margin: 0; padding: 20px; min-height: 100vh;
+      background: linear-gradient(180deg, #003399 0%, #0066cc 30%, #3399ff 60%, #66ccff 80%, #99eeff 100%);
+      font-family: Tahoma, 'MS Sans Serif', Geneva, sans-serif; font-size: 11px;
     }
     
-    .traces-list { display: none; padding: 10px 20px 15px 70px; }
-    .error-group.open .traces-list { display: block; }
-    .error-group.open .error-header { background: #334155; }
-    
-    .trace-item {
-      background: #0f172a; padding: 10px 15px; border-radius: 8px;
-      margin-bottom: 8px; display: flex; justify-content: space-between;
-      align-items: center;
+    .window {
+      max-width: 850px; margin: 20px auto;
+      border: 1px solid #0055ea; border-radius: 8px 8px 0 0;
+      box-shadow: 2px 2px 10px rgba(0,0,0,0.4);
     }
-    .trace-info { font-size: 12px; color: #94a3b8; }
-    .trace-link {
-      background: #3b82f6; color: white; padding: 5px 10px;
-      border-radius: 6px; text-decoration: none; font-size: 11px;
-      transition: all 0.2s; border: none; cursor: pointer;
+    
+    .title-bar {
+      background: linear-gradient(180deg, #0a58ca 0%, #3d95f7 10%, #5db3ff 45%, #3d95f7 55%, #0a58ca 100%);
+      padding: 4px 6px; border-radius: 6px 6px 0 0;
+      display: flex; align-items: center; justify-content: space-between;
     }
-    .trace-link:hover { background: #2563eb; }
-    .trace-link:disabled { opacity: 0.7; cursor: wait; }
-    .trace-link.viewed { background: #22c55e; }
-    .trace-link.viewed:hover { background: #16a34a; }
-    
-    .no-failures {
-      text-align: center; padding: 40px; color: #4ade80;
-      background: #1e293b; border-radius: 12px;
+    .title-bar-text {
+      color: white; font-weight: bold; font-size: 12px;
+      text-shadow: 1px 1px 1px rgba(0,0,0,0.4);
+      display: flex; align-items: center; gap: 5px;
     }
-    .no-failures span { font-size: 48px; display: block; margin-bottom: 10px; }
+    .title-bar-text::before { content: '📊'; }
+    .title-bar-controls { display: flex; gap: 2px; }
+    .title-bar-controls button {
+      width: 21px; height: 21px; font-size: 9px; font-weight: bold;
+      border: 1px solid #fff; border-radius: 3px; cursor: pointer;
+      background: linear-gradient(180deg, #fff 0%, #d4d0c8 100%);
+      font-family: 'Webdings', sans-serif;
+    }
+    .title-bar-controls button:hover { background: linear-gradient(180deg, #fff 0%, #e8e8e8 100%); }
+    .title-bar-controls button:active { background: #c0c0c0; }
+    .btn-min::after { content: '0'; }
+    .btn-max::after { content: '1'; }
+    .btn-close { background: linear-gradient(180deg, #e77157 0%, #c54535 100%) !important; color: white !important; }
+    .btn-close::after { content: 'r'; }
     
-    .arrow { transition: transform 0.2s; margin-right: 8px; }
-    .spec-group.open > .spec-header .arrow,
-    .step-group.open > .step-header .arrow,
-    .error-group.open > .error-header .arrow { transform: rotate(90deg); }
+    .window-body {
+      background: #ece9d8; padding: 15px;
+      border-left: 1px solid #848484; border-right: 1px solid #848484; border-bottom: 1px solid #848484;
+    }
     
-    </style>
+    .field-row { margin-bottom: 10px; display: flex; align-items: center; gap: 10px; }
+    .field-row label { min-width: 80px; }
+    
+    .groupbox {
+      border: 1px solid #848484; padding: 10px; margin: 10px 0;
+      background: linear-gradient(180deg, #f5f4ea 0%, #ece9d8 100%);
+    }
+    .groupbox legend { background: #ece9d8; padding: 2px 8px; font-weight: bold; color: #003399; }
+    
+    table { width: 100%; border-collapse: collapse; background: white; border: 2px inset #808080; }
+    th { background: linear-gradient(180deg, #f7f7f7 0%, #d4d0c8 100%); padding: 6px 10px; border: 1px solid #808080; text-align: left; }
+    td { padding: 6px 10px; border: 1px solid #c0c0c0; }
+    .pass { color: #008000; font-weight: bold; }
+    .fail { color: #cc0000; font-weight: bold; }
+    
+    button {
+      background: linear-gradient(180deg, #fff 0%, #ece9d8 100%);
+      border: 2px outset #d4d0c8; border-radius: 3px;
+      padding: 4px 12px; font-family: Tahoma; font-size: 11px; cursor: pointer;
+    }
+    button:hover { background: linear-gradient(180deg, #fff 0%, #f0ede4 100%); }
+    button:active { border-style: inset; background: #d4d0c8; }
+    button.viewed { background: linear-gradient(180deg, #b5e7a0 0%, #8ed07c 100%); }
+    
+    select {
+      background: white; border: 2px inset #808080; padding: 2px 4px;
+      font-family: Tahoma; font-size: 11px;
+    }
+    
+    .status-bar {
+      background: linear-gradient(180deg, #ece9d8 0%, #d4d0c8 100%);
+      border-top: 1px solid #fff; padding: 3px 8px;
+      display: flex; justify-content: space-between; font-size: 10px;
+    }
+    .status-bar-field { border: 1px inset #808080; padding: 2px 8px; background: #ece9d8; }
+    
+    details { margin: 5px 0; }
+    summary { cursor: pointer; padding: 4px 8px; background: #d4d0c8; border: 1px solid #808080; }
+    summary:hover { background: #e4e0d8; }
+    .spec-details { border: 2px inset #808080; margin: 8px 0; }
+    .spec-details > summary { background: linear-gradient(180deg, #ffebcd 0%, #ffdead 100%); font-weight: bold; }
+    .step-details { margin: 4px 10px; border: 1px solid #c0c0c0; }
+    .step-details > summary { background: #fff0f0; color: #cc0000; }
+    .error-details { margin: 4px 15px; border: 1px solid #d0d0d0; }
+    .error-details > summary { background: #fffacd; font-family: 'Lucida Console', monospace; font-size: 10px; }
+    .trace-row { padding: 5px 20px; background: #fafafa; border-bottom: 1px solid #e0e0e0; display: flex; justify-content: space-between; align-items: center; }
+    
+    .all-pass { color: #008000; font-weight: bold; font-size: 14px; text-align: center; padding: 20px; }
+    .all-pass::before { content: '✅ '; }
+    
+    h2 { color: #003399; font-size: 12px; margin: 15px 0 10px; padding-left: 5px; border-left: 3px solid #003399; }
+    
+    .taskbar {
+      position: fixed; bottom: 0; left: 0; right: 0; height: 30px;
+      background: linear-gradient(180deg, #3168d5 0%, #4993e6 3%, #306ac7 5%, #0b3a8c 100%);
+      border-top: 1px solid #0b3a8c; display: flex; align-items: center; padding: 2px 4px;
+    }
+    .start-btn {
+      background: linear-gradient(180deg, #3b9c3b 0%, #379637 10%, #267326 100%);
+      border: none; border-radius: 0 8px 8px 0; padding: 4px 12px 4px 8px;
+      color: white; font-weight: bold; font-size: 12px; cursor: pointer;
+      display: flex; align-items: center; gap: 4px;
+      box-shadow: inset 1px 1px 0 rgba(255,255,255,0.3);
+    }
+    .start-btn:hover { background: linear-gradient(180deg, #45a845 0%, #40a040 10%, #308030 100%); }
+    .start-btn::before { content: '🪟'; font-size: 16px; }
+    
+    body { padding-bottom: 50px; }
+  </style>
 </head>
 <body>
-  <div class="container">
-    <h1>🚀 Funnel Load Test Dashboard</h1>
-    
-    <div class="stats">
-      <div class="stat-card">
-        <div class="stat-value">${results.total}</div>
-        <div class="stat-label">Total Runs</div>
-      </div>
-      <div class="stat-card passed">
-        <div class="stat-value">${results.passed}</div>
-        <div class="stat-label">Passed</div>
-      </div>
-      <div class="stat-card failed">
-        <div class="stat-value">${results.failed}</div>
-        <div class="stat-label">Failed</div>
-      </div>
-      <div class="stat-card rate">
-        <div class="stat-value">${results.total > 0 ? ((results.passed / results.total) * 100).toFixed(1) : 0}%</div>
-        <div class="stat-label">Success Rate</div>
+  <div class="window">
+    <div class="title-bar">
+      <span class="title-bar-text">Load Test Results - Playwright</span>
+      <div class="title-bar-controls">
+        <button class="btn-min"></button>
+        <button class="btn-max"></button>
+        <button class="btn-close"></button>
       </div>
     </div>
-
-    <div class="failures-section">
-      <h2>⚠️ Failures by Spec</h2>
-      ${generateFailuresHTML(results.failures)}
+    <div class="window-body">
+      <div class="groupbox">
+        <legend>📈 Test Statistics</legend>
+        <table>
+          <tr><th>Total Runs</th><th>Passed ✓</th><th>Failed ✗</th><th>Success Rate</th></tr>
+          <tr>
+            <td><b>${r.total}</b></td>
+            <td class="pass">${r.passed}</td>
+            <td class="fail">${r.failed}</td>
+            <td><b>${rate}%</b></td>
+          </tr>
+        </table>
+      </div>
+      
+      <h2>⚠️ Failure Details</h2>
+      ${failuresHTML}
     </div>
+    <div class="status-bar">
+      <span class="status-bar-field">Ready</span>
+      <span class="status-bar-field">Tests completed at ${new Date().toLocaleTimeString()}</span>
+    </div>
+  </div>
+  
+  <div class="taskbar">
+    <button class="start-btn">Start</button>
   </div>
 
   <script>
-    document.querySelectorAll('.spec-header').forEach(header => {
-      header.addEventListener('click', () => {
-        header.parentElement.classList.toggle('open');
-      });
-    });
-    
-    document.querySelectorAll('.step-header').forEach(header => {
-      header.addEventListener('click', (e) => {
-        e.stopPropagation();
-        header.parentElement.classList.toggle('open');
-      });
-    });
-    
-    document.querySelectorAll('.error-header').forEach(header => {
-      header.addEventListener('click', (e) => {
-        e.stopPropagation();
-        header.parentElement.classList.toggle('open');
-      });
-    });
-
-    function openTraceViewer(tracePath, btn) {
-      // Mark button as loading
-      const originalText = btn.textContent;
-      btn.textContent = '⏳ Opening...';
+    function openTrace(path, btn) {
+      btn.textContent = 'Loading...';
       btn.disabled = true;
-      
-      // Check if running on HTTPS (S3/remote) or localhost
-      const isRemote = window.location.protocol === 'https:';
-      
-      if (isRemote) {
-        // For S3/remote: open trace.playwright.dev with full URL
-        const fullUrl = window.location.origin + tracePath;
-        const viewerUrl = 'https://trace.playwright.dev/?trace=' + encodeURIComponent(fullUrl);
-        window.open(viewerUrl, '_blank');
-        btn.textContent = '✅ Viewed';
+      if (location.protocol === 'https:') {
+        window.open('https://trace.playwright.dev/?trace=' + encodeURIComponent(location.origin + path), '_blank');
+        btn.textContent = '✓ Viewed';
         btn.classList.add('viewed');
         btn.disabled = false;
       } else {
-        // For localhost: use local Playwright trace viewer
-        fetch('/api/show-trace?path=' + encodeURIComponent(tracePath))
+        fetch('/api/show-trace?path=' + encodeURIComponent(path))
           .then(r => r.json())
-          .then(data => {
-            if (data.success) {
-              btn.textContent = '✅ Viewed';
-              btn.classList.add('viewed');
-              btn.disabled = false;
-            } else {
-              btn.textContent = originalText;
-              btn.disabled = false;
-              alert('Could not open trace: ' + data.error);
-            }
-          })
-          .catch(err => {
-            btn.textContent = originalText;
-            btn.disabled = false;
-            alert('Error: ' + err.message);
-          });
+          .then(() => { btn.textContent = '✓ Viewed'; btn.classList.add('viewed'); btn.disabled = false; })
+          .catch(() => { btn.textContent = 'View'; btn.disabled = false; });
       }
     }
   </script>
 </body>
 </html>`;
-}
-
-function generateFailuresHTML(failures) {
-  const specs = Object.keys(failures);
-  
-  if (specs.length === 0) {
-    return '<div class="no-failures"><span>✅</span>All tests passed!</div>';
-  }
-  
-  return specs.map(specName => {
-    const steps = failures[specName];
-    const totalForSpec = Object.values(steps).reduce((sum, step) => 
-      sum + Object.values(step).reduce((s, e) => s + e.count, 0), 0);
-    
-    const stepsHTML = Object.keys(steps).map(stepName => {
-      const errors = steps[stepName];
-      const totalForStep = Object.values(errors).reduce((sum, e) => sum + e.count, 0);
-      
-      const errorsHTML = Object.keys(errors).map(errorMsg => {
-        const errorData = errors[errorMsg];
-        
-        const tracesHTML = errorData.traces.map((t, idx) => {
-          const tracePath = t.trace ? `/test-results/${t.trace.replace('test-results/', '')}` : '#';
-          const runNum = idx + 1;
-          const btnId = 'trace-btn-' + Math.random().toString(36).substr(2, 9);
-          return `
-          <div class="trace-item">
-            <span class="trace-info">Run #${runNum}</span>
-            <button class="trace-link" id="${btnId}" onclick="openTraceViewer('${tracePath}', this)">📋 View Trace</button>
-          </div>
-        `;
-        }).join('');
-        
-        return `
-          <div class="error-group">
-            <div class="error-header">
-              <span class="arrow">▶</span>
-              <span class="error-message" title="${escapeHtml(errorMsg)}">${escapeHtml(errorMsg)}</span>
-              <span class="error-count">${errorData.count}x</span>
-            </div>
-            <div class="traces-list">
-              ${tracesHTML || '<div class="trace-item">No traces available</div>'}
-            </div>
-          </div>
-        `;
-      }).join('');
-      
-      return `
-        <div class="step-group">
-          <div class="step-header">
-            <span class="step-name"><span class="arrow">▶</span> ${escapeHtml(stepName)}</span>
-            <span class="step-count">${totalForStep}x</span>
-          </div>
-          <div class="step-content">
-            ${errorsHTML}
-          </div>
-        </div>
-      `;
-    }).join('');
-    
-    return `
-      <div class="spec-group">
-        <div class="spec-header">
-          <span class="spec-name"><span class="arrow">▶</span> 📄 ${escapeHtml(specName)}</span>
-          <span class="spec-count">${totalForSpec} failures</span>
-        </div>
-        <div class="spec-content">
-          ${stepsHTML}
-        </div>
-      </div>
-    `;
-  }).join('');
-}
-
-function escapeHtml(text) {
-  if (!text) return '';
-  return String(text)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
 }
