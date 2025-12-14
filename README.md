@@ -1,75 +1,165 @@
-# Load Funnel Test
+# Playwright Load Test Farm
 
-Нагрузочное тестирование воронок продаж с Playwright и кастомным дашбордом.
+Нагрузочное тестирование e-commerce воронок с Playwright, Page Object Model и кастомным Windows XP дашбордом.
 
-## Быстрый старт
+## � Table of Contents
+
+- [Быстрый старт](#-быстрый-старт)
+- [Команды](#-команды)
+- [Кастомная нагрузка](#-кастомная-нагрузка)
+- [Дашборд](#-дашборд-windows-xp-style)
+- [Структура проекта](#-структура-проекта)
+- [Архитектура](#️-архитектура)
+- [Тестовый сценарий](#-тестовый-сценарий)
+- [Технологии](#️-технологии)
+
+## �🚀 Быстрый старт
 
 ```bash
+# Установка
 npm install
 npx playwright install chromium
 
-# Запуск теста (50 прогонов)
-npm run test:load
+# Запуск тестов (50 прогонов) + автооткрытие дашборда
+npm run test:chrome
 
-# Открыть дашборд
+# Или только дашборд (если тесты уже были)
 npm run dashboard
 ```
 
-## Команды
+## 📋 Команды
 
-| Команда | Описание |
-|---------|----------|
-| `npm test` | Обычный запуск (5 воркеров) |
-| `npm run test:load` | 10 воркеров × 5 повторов = 50 прогонов |
-| `npm run test:heavy` | 20 воркеров × 10 повторов = 200 прогонов |
-| `npm run dashboard` | Открыть HTML дашборд |
-| `npm run clean` | Очистить порт и удалить репорты |
+| Команда | Workers | Repeats | Total | Описание |
+|---------|---------|---------|-------|----------|
+| `npm run test:chrome` | 10 | 5 | 50 | Стандартный прогон Chrome |
+| `npm run test:chrome-heavy` | 20 | 200 | 4000 | Тяжёлая нагрузка |
+| `npm run test:android` | 10 | 50 | 500 | Android эмуляция |
+| `npm run test:android-landscape` | 10 | 50 | 500 | Android ландшафт |
+| `npm run test:iphone` | 10 | 50 | 500 | iPhone эмуляция |
+| `npm run test:iphone-landscape` | 10 | 50 | 500 | iPhone ландшафт |
+| `npm run dashboard` | - | - | - | Открыть дашборд |
+| `npm run clean` | - | - | - | Очистка репортов |
 
-## Кастомная нагрузка
+## 🎯 Кастомная нагрузка
 
 ```bash
-WORKERS=30 npx playwright test --repeat-each=20
+# Свои параметры
+npx playwright test demoblaze --workers=30 --repeat-each=100
+
+# Конкретный девайс
+DEVICE=android npx playwright test demoblaze --workers=5
 ```
 
-## Дашборд
+## 📊 Дашборд (Windows XP style)
 
-После запуска тестов `npm run dashboard` открывает дашборд с:
+После тестов автоматически открывается дашборд:
 
-- **Статистика**: total / passed / failed / success rate
-- **Группировка по степам**: какой шаг воронки падает чаще
-- **Группировка по ошибкам**: внутри каждого степа ошибки сгруппированы
-- **Трейсы**: для каждой ошибки доступны trace файлы
+- **Статистика**: Total / Passed / Failed / Success Rate
+- **Иерархия фейлов**: Spec → Step → Error → Traces
+- **Trace Viewer**: 
+  - Локально — открывает нативный Playwright trace viewer
+  - На сервере (S3) — открывает trace.playwright.dev
 
-## Структура
+## 📁 Структура проекта
 
 ```
+playwright-farm/
 ├── tests/
-│   └── checkout-funnel.spec.js  # Тест сценарий (атомарные степы)
+│   ├── demoblaze.spec.js      # Тест-спека (атомарные степы)
+│   ├── fixtures.js            # Playwright fixtures для POM
+│   ├── selectors/
+│   │   └── index.js           # Все селекторы по страницам
+│   └── pages/
+│       ├── index.js           # Экспорт page objects
+│       ├── HomePage.js        # Главная страница
+│       ├── ProductPage.js     # Страница продукта
+│       ├── CartPage.js        # Корзина
+│       ├── CheckoutPage.js    # Чекаут
+│       └── ConfirmationPage.js# Подтверждение
 ├── reporters/
-│   └── funnel-reporter.js       # Кастомный репортер
+│   └── funnel-reporter.js     # Кастомный репортер
 ├── scripts/
-│   ├── clean.js                 # Очистка портов и репортов
-│   └── serve-dashboard.js       # HTTP сервер для дашборда
-├── report/                      # Генерируемые репорты
-├── test-results/                # Трейсы и артефакты
-└── playwright.config.js
+│   ├── clean.js               # Очистка
+│   └── serve-dashboard.js     # Дашборд сервер
+├── report/                    # Генерируемые репорты
+├── test-results/              # Трейсы и артефакты
+└── playwright.config.js       # Конфигурация
 ```
 
-## Воронка теста (22 атомарных степа)
+## 🏗️ Архитектура
 
-1. Navigate to homepage
-2. Wait for products to load
-3. Click on random product
-4. Wait for product page to load
-5. Setup dialog handler
-6. Click Add to cart
-7. Wait for cart confirmation
-8. Click on Cart link
-9. Wait for cart to load
-10. Click Place Order
-11. Wait for checkout modal
-12. Fill name/country/city/card/month/year
-13. Click Purchase
-14. Wait for success modal
-15. Verify success message
-16. Close confirmation
+### Page Object Model
+
+```javascript
+// tests/pages/HomePage.js
+class HomePage {
+  constructor(page) {
+    this.page = page;
+    this.sel = selectors.home;
+  }
+  async navigate() { await this.page.goto('/'); }
+  async waitForProducts() { ... }
+  async clickRandomProduct() { ... }
+}
+```
+
+### Selectors Module
+
+```javascript
+// tests/selectors/index.js
+module.exports = {
+  home: {
+    productCards: '#tbodyid .card',
+    productLinks: '#tbodyid .card-title a',
+  },
+  product: { ... },
+  cart: { ... },
+  checkout: { ... },
+  confirmation: { ... },
+};
+```
+
+### Fixtures
+
+```javascript
+// tests/fixtures.js
+const test = base.extend({
+  homePage: async ({ page }, use) => { await use(new HomePage(page)); },
+  productPage: async ({ page }, use) => { await use(new ProductPage(page)); },
+  // ...
+});
+```
+
+### Использование в спеке
+
+```javascript
+test('Sales funnel', async ({ homePage, productPage, cartPage }) => {
+  await test.step('Navigate to homepage', async () => {
+    await homePage.navigate();
+  });
+  await test.step('Wait for products', async () => {
+    await homePage.waitForProducts();
+  });
+  // ...
+});
+```
+
+## 🔬 Тестовый сценарий
+
+На примере [demoblaze.com](https://www.demoblaze.com) реализована e-commerce воронка:
+
+**Главная → Продукт → Корзина → Чекаут → Подтверждение**
+
+Каждое действие обёрнуто в атомарный `test.step()` для точной диагностики падений. Репозиторий легко расширяется — добавляйте свои page objects и спеки по аналогии.
+
+## 🛠️ Технологии
+
+- **Playwright** — браузерная автоматизация
+- **Page Object Model** — архитектура тестов
+- **Custom Reporter** — сбор и группировка результатов
+- **Node.js HTTP Server** — дашборд без зависимостей
+- **Trace Viewer** — интеграция для дебага
+
+## 📝 Лицензия
+
+MIT
