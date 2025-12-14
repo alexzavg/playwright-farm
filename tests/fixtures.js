@@ -1,21 +1,15 @@
 const { test: base } = require('@playwright/test');
-const { HomePage, ProductPage, CartPage, CheckoutPage, ConfirmationPage } = require('./pages');
+const demoblazePages = require('./pages/demoblaze/_index');
 
 const test = base.extend({
-  homePage: async ({ page }, use) => {
-    await use(new HomePage(page));
-  },
-  productPage: async ({ page }, use) => {
-    await use(new ProductPage(page));
-  },
-  cartPage: async ({ page }, use) => {
-    await use(new CartPage(page));
-  },
-  checkoutPage: async ({ page }, use) => {
-    await use(new CheckoutPage(page));
-  },
-  confirmationPage: async ({ page }, use) => {
-    await use(new ConfirmationPage(page));
+  demoblaze: async ({ page }, use) => {
+    await use({
+      homePage: new demoblazePages.HomePage(page),
+      productPage: new demoblazePages.ProductPage(page),
+      cartPage: new demoblazePages.CartPage(page),
+      checkoutPage: new demoblazePages.CheckoutPage(page),
+      confirmationPage: new demoblazePages.ConfirmationPage(page),
+    });
   },
 });
 

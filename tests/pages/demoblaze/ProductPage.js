@@ -1,14 +1,14 @@
 const { expect } = require('@playwright/test');
-const selectors = require('../selectors');
+const { ProductSelectors } = require('../../selectors/demoblaze/_index');
 
 class ProductPage {
   constructor(page) {
     this.page = page;
-    this.sel = selectors.product;
+    this.sel = new ProductSelectors(page);
   }
 
   async waitForLoad() {
-    await expect(this.page.locator(this.sel.content)).toBeVisible({ timeout: 10000 });
+    await expect(this.sel.content).toBeVisible({ timeout: 10000 });
     return this;
   }
 
@@ -18,7 +18,7 @@ class ProductPage {
   }
 
   async clickAddToCart() {
-    await this.page.locator(this.sel.addToCartBtn).click();
+    await this.sel.addToCartBtn.click();
     return this;
   }
 
