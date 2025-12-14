@@ -1,4 +1,4 @@
-const { test } = require('./fixtures');
+const { test } = require('../../support/fixtures');
 
 test('Sales funnel: Add to cart and checkout', async ({ demoblaze }) => {
   

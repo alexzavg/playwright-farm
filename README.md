@@ -64,85 +64,46 @@ DEVICE=android npx playwright test demoblaze --workers=5
 
 ```
 playwright-farm/
+├── support/                   # Page Objects, Selectors, Fixtures
+│   ├── fixtures.js            # Общие fixtures для всех проектов
+│   ├── pages/
+│   │   └── demoblaze/         # Page Objects по проектам
+│   └── selectors/
+│       └── demoblaze/         # Селекторы по проектам
 ├── tests/
-│   ├── demoblaze.spec.js      # Тест-спека (атомарные степы)
-│   ├── fixtures.js            # Playwright fixtures для POM
-│   ├── selectors/
-│   │   └── index.js           # Все селекторы по страницам
-│   └── pages/
-│       ├── index.js           # Экспорт page objects
-│       ├── HomePage.js        # Главная страница
-│       ├── ProductPage.js     # Страница продукта
-│       ├── CartPage.js        # Корзина
-│       ├── CheckoutPage.js    # Чекаут
-│       └── ConfirmationPage.js# Подтверждение
+│   └── demoblaze/             # Спеки по проектам
+│       └── checkout.spec.js
 ├── reporters/
-│   └── funnel-reporter.js     # Кастомный репортер
+│   └── funnel-reporter.js
 ├── scripts/
-│   ├── clean.js               # Очистка
-│   └── serve-dashboard.js     # Дашборд сервер
-├── report/                    # Генерируемые репорты
-├── test-results/              # Трейсы и артефакты
-└── playwright.config.js       # Конфигурация
+│   ├── clean.js
+│   └── serve-dashboard.js
+└── playwright.config.js
 ```
 
 ## 🏗️ Архитектура
 
-### Page Object Model
-
-```javascript
-// tests/pages/HomePage.js
-class HomePage {
-  constructor(page) {
-    this.page = page;
-    this.sel = selectors.home;
-  }
-  async navigate() { await this.page.goto('/'); }
-  async waitForProducts() { ... }
-  async clickRandomProduct() { ... }
-}
-```
-
-### Selectors Module
-
-```javascript
-// tests/selectors/index.js
-module.exports = {
-  home: {
-    productCards: '#tbodyid .card',
-    productLinks: '#tbodyid .card-title a',
-  },
-  product: { ... },
-  cart: { ... },
-  checkout: { ... },
-  confirmation: { ... },
-};
-```
-
-### Fixtures
-
-```javascript
-// tests/fixtures.js
-const test = base.extend({
-  homePage: async ({ page }, use) => { await use(new HomePage(page)); },
-  productPage: async ({ page }, use) => { await use(new ProductPage(page)); },
-  // ...
-});
-```
-
 ### Использование в спеке
 
 ```javascript
-test('Sales funnel', async ({ homePage, productPage, cartPage }) => {
+const { test } = require('../../support/fixtures');
+
+test('Sales funnel', async ({ demoblaze }) => {
   await test.step('Navigate to homepage', async () => {
-    await homePage.navigate();
+    await demoblaze.homePage.navigate();
   });
   await test.step('Wait for products', async () => {
-    await homePage.waitForProducts();
+    await demoblaze.homePage.waitForProducts();
   });
-  // ...
 });
 ```
+
+### Добавление нового проекта
+
+1. `support/pages/newproject/` — page objects
+2. `support/selectors/newproject/` — селекторы
+3. Добавить fixture в `support/fixtures.js`
+4. `tests/newproject/` — спеки
 
 ## 🔬 Тестовый сценарий
 
