@@ -4,7 +4,7 @@
   "description": "Load testing for sales funnels with Playwright",
   "scripts": {
     "clean": "node scripts/clean.js",
-    "test:chrome": "npm run clean && npx playwright test demoblaze --workers=10 --repeat-each=5; npm run dashboard",
+    "test:chrome": "npm run clean && npx playwright test demoblaze --workers=10 --repeat-each=50; npm run dashboard",
     "test:chrome-heavy": "npm run clean && npx playwright test demoblaze --workers=20 --repeat-each=200; npm run dashboard",
     "test:android": "npm run clean && DEVICE=android npx playwright test demoblaze --workers=10 --repeat-each=50; npm run dashboard",
     "test:android-landscape": "npm run clean && DEVICE=android-landscape npx playwright test demoblaze --workers=10 --repeat-each=50; npm run dashboard",
