@@ -61,8 +61,105 @@ function esc(t) {
   return t ? String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;') : '';
 }
 
+function processTimelineData(timeline, startTime) {
+  if (!timeline.length || !startTime) return { labels: [], passed: [], failed: [], cumulative: [] };
+  
+  const start = new Date(startTime).getTime();
+  const bucketSize = 1000;
+  const buckets = {};
+  
+  timeline.forEach(t => {
+    const relativeTime = Math.floor((t.completedAt - start) / bucketSize) * bucketSize;
+    if (!buckets[relativeTime]) buckets[relativeTime] = { passed: 0, failed: 0 };
+    if (t.status === 'passed') buckets[relativeTime].passed++;
+    else buckets[relativeTime].failed++;
+  });
+  
+  const times = Object.keys(buckets).map(Number).sort((a, b) => a - b);
+  let cumulative = 0;
+  
+  return {
+    labels: times.map(t => (t / 1000).toFixed(0) + 's'),
+    passed: times.map(t => buckets[t].passed),
+    failed: times.map(t => buckets[t].failed),
+    cumulative: times.map(t => {
+      cumulative += buckets[t].passed + buckets[t].failed;
+      return cumulative;
+    })
+  };
+}
+
+function processDurationDistribution(durations) {
+  if (!durations.length) return { labels: [], counts: [] };
+  
+  const min = Math.min(...durations);
+  const max = Math.max(...durations);
+  const range = max - min || 1000;
+  const bucketCount = Math.min(10, durations.length);
+  const bucketSize = Math.ceil(range / bucketCount);
+  
+  const buckets = {};
+  for (let i = 0; i < bucketCount; i++) {
+    const start = min + i * bucketSize;
+    buckets[start] = 0;
+  }
+  
+  durations.forEach(d => {
+    const bucket = min + Math.floor((d - min) / bucketSize) * bucketSize;
+    const key = Math.min(bucket, min + (bucketCount - 1) * bucketSize);
+    buckets[key] = (buckets[key] || 0) + 1;
+  });
+  
+  const keys = Object.keys(buckets).map(Number).sort((a, b) => a - b);
+  return {
+    labels: keys.map(k => formatDuration(k) + '-' + formatDuration(k + bucketSize)),
+    counts: keys.map(k => buckets[k])
+  };
+}
+
+function formatDuration(ms) {
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+  const mins = Math.floor(ms / 60000);
+  const secs = ((ms % 60000) / 1000).toFixed(0);
+  return `${mins}m ${secs}s`;
+}
+
+function formatTime(isoString) {
+  if (!isoString) return 'N/A';
+  const d = new Date(isoString);
+  return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
 function generateHTML(r) {
   const rate = r.total > 0 ? ((r.passed / r.total) * 100).toFixed(1) : 0;
+  
+  const startTime = r.startTime ? new Date(r.startTime) : null;
+  const endTime = r.endTime ? new Date(r.endTime) : null;
+  const totalDuration = startTime && endTime ? endTime - startTime : 0;
+  const avgDuration = r.testDurations && r.testDurations.length > 0 
+    ? r.testDurations.reduce((a, b) => a + b, 0) / r.testDurations.length 
+    : 0;
+  
+  const throughput = totalDuration > 0 ? (r.total / (totalDuration / 60000)).toFixed(1) : 0;
+  const workers = r.workers || 1;
+  
+  const stepStats = r.stepStats || {};
+  const stepNames = Object.keys(stepStats);
+  const stepData = stepNames.map(name => ({
+    name,
+    total: stepStats[name].total,
+    passed: stepStats[name].passed,
+    failed: stepStats[name].failed,
+    errorRate: stepStats[name].total > 0 
+      ? ((stepStats[name].failed / stepStats[name].total) * 100).toFixed(1) 
+      : 0
+  }));
+  const topFailingSteps = [...stepData].filter(s => s.failed > 0).sort((a, b) => b.failed - a.failed).slice(0, 3);
+  
+  const testTimeline = r.testTimeline || [];
+  const timelineData = processTimelineData(testTimeline, startTime);
+  const durationBuckets = processDurationDistribution(r.testDurations || []);
   
   let failuresHTML = '';
   if (Object.keys(r.failures).length === 0) {
@@ -97,12 +194,13 @@ function generateHTML(r) {
 <head>
   <meta charset="UTF-8">
   <title>Load Test Results</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     * { box-sizing: border-box; }
     body { 
       margin: 0; padding: 20px; min-height: 100vh;
       background: linear-gradient(180deg, #003399 0%, #0066cc 30%, #3399ff 60%, #66ccff 80%, #99eeff 100%);
-      font-family: Tahoma, 'MS Sans Serif', Geneva, sans-serif; font-size: 11px;
+      font-family: Tahoma, 'MS Sans Serif', Geneva, sans-serif; font-size: 14px;
     }
     
     .window {
@@ -117,7 +215,7 @@ function generateHTML(r) {
       display: flex; align-items: center; justify-content: space-between;
     }
     .title-bar-text {
-      color: white; font-weight: bold; font-size: 12px;
+      color: white; font-weight: bold; font-size: 14px;
       text-shadow: 1px 1px 1px rgba(0,0,0,0.4);
       display: flex; align-items: center; gap: 5px;
     }
@@ -151,8 +249,8 @@ function generateHTML(r) {
     .groupbox legend { background: #ece9d8; padding: 2px 8px; font-weight: bold; color: #003399; }
     
     table { width: 100%; border-collapse: collapse; background: white; border: 2px inset #808080; }
-    th { background: linear-gradient(180deg, #f7f7f7 0%, #d4d0c8 100%); padding: 6px 10px; border: 1px solid #808080; text-align: left; }
-    td { padding: 6px 10px; border: 1px solid #c0c0c0; }
+    th { background: linear-gradient(180deg, #f7f7f7 0%, #d4d0c8 100%); padding: 8px 12px; border: 1px solid #808080; text-align: left; font-size: 14px; }
+    td { padding: 8px 12px; border: 1px solid #c0c0c0; font-size: 14px; }
     .pass { color: #008000; font-weight: bold; }
     .fail { color: #cc0000; font-weight: bold; }
     
@@ -172,26 +270,60 @@ function generateHTML(r) {
     
     .status-bar {
       background: linear-gradient(180deg, #ece9d8 0%, #d4d0c8 100%);
-      border-top: 1px solid #fff; padding: 3px 8px;
-      display: flex; justify-content: space-between; font-size: 10px;
+      border-top: 1px solid #fff; padding: 4px 10px;
+      display: flex; justify-content: space-between; font-size: 12px;
     }
     .status-bar-field { border: 1px inset #808080; padding: 2px 8px; background: #ece9d8; }
     
     details { margin: 5px 0; }
-    summary { cursor: pointer; padding: 4px 8px; background: #d4d0c8; border: 1px solid #808080; }
+    summary { cursor: pointer; padding: 6px 10px; background: #d4d0c8; border: 1px solid #808080; font-size: 14px; }
     summary:hover { background: #e4e0d8; }
     .spec-details { border: 2px inset #808080; margin: 8px 0; }
     .spec-details > summary { background: linear-gradient(180deg, #ffebcd 0%, #ffdead 100%); font-weight: bold; }
     .step-details { margin: 4px 10px; border: 1px solid #c0c0c0; }
     .step-details > summary { background: #fff0f0; color: #cc0000; }
     .error-details { margin: 4px 15px; border: 1px solid #d0d0d0; }
-    .error-details > summary { background: #fffacd; font-family: 'Lucida Console', monospace; font-size: 10px; }
+    .error-details > summary { background: #fffacd; font-family: 'Lucida Console', monospace; font-size: 12px; }
     .trace-row { padding: 5px 20px; background: #fafafa; border-bottom: 1px solid #e0e0e0; display: flex; justify-content: space-between; align-items: center; }
     
-    .all-pass { color: #008000; font-weight: bold; font-size: 14px; text-align: center; padding: 20px; }
+    .all-pass { color: #008000; font-weight: bold; font-size: 16px; text-align: center; padding: 20px; }
     .all-pass::before { content: '✅ '; }
     
-    h2 { color: #003399; font-size: 12px; margin: 15px 0 10px; padding-left: 5px; border-left: 3px solid #003399; }
+    .kpi-grid {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 15px;
+    }
+    .kpi-card {
+      background: linear-gradient(180deg, #fff 0%, #e8e6de 100%);
+      border: 2px inset #808080; padding: 8px; text-align: center;
+      position: relative; cursor: help;
+    }
+    .kpi-card:hover { background: linear-gradient(180deg, #fff 0%, #f0ede4 100%); }
+    .kpi-label { font-size: 12px; color: #666; margin-bottom: 4px; }
+    .kpi-value { font-size: 18px; font-weight: bold; color: #003399; }
+    
+    .tooltip {
+      visibility: hidden; opacity: 0;
+      position: absolute; bottom: calc(100% + 8px); left: 50%;
+      transform: translateX(-50%); z-index: 100;
+      background: #ffffe1; border: 1px solid #000; padding: 8px 10px;
+      font-size: 12px; font-weight: normal; color: #000;
+      white-space: nowrap; box-shadow: 2px 2px 3px rgba(0,0,0,0.3);
+      transition: opacity 0.15s, visibility 0.15s;
+    }
+    .tooltip::after {
+      content: ''; position: absolute; top: 100%; left: 50%;
+      margin-left: -5px; border: 5px solid transparent;
+      border-top-color: #000;
+    }
+    .kpi-card:hover .tooltip { visibility: visible; opacity: 1; }
+    
+    h2 { color: #003399; font-size: 14px; margin: 15px 0 10px; padding-left: 5px; border-left: 3px solid #003399; }
+    
+    .chart-container {
+      background: white; border: 2px inset #808080; padding: 15px;
+      margin-top: 10px; position: relative; height: 250px;
+    }
+    .no-data { text-align: center; color: #666; padding: 40px; font-style: italic; }
     
     .taskbar {
       position: fixed; bottom: 0; left: 0; right: 0; height: 30px;
@@ -223,6 +355,58 @@ function generateHTML(r) {
     </div>
     <div class="window-body">
       <div class="groupbox">
+        <legend>⏱️ Run Timing</legend>
+        <div class="kpi-grid">
+          <div class="kpi-card">
+            <div class="kpi-label">Start Time</div>
+            <div class="kpi-value">${formatTime(r.startTime)}</div>
+            <div class="tooltip">When the test run started executing</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">End Time</div>
+            <div class="kpi-value">${formatTime(r.endTime)}</div>
+            <div class="tooltip">When all tests finished executing</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">Total Duration</div>
+            <div class="kpi-value">${formatDuration(totalDuration)}</div>
+            <div class="tooltip">Wall-clock time from start to end (End Time − Start Time)</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">Avg Test Duration</div>
+            <div class="kpi-value">${formatDuration(Math.round(avgDuration))}</div>
+            <div class="tooltip">Average execution time per test (Sum of all test durations ÷ Total tests)</div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="groupbox">
+        <legend>🚀 Performance</legend>
+        <div class="kpi-grid">
+          <div class="kpi-card">
+            <div class="kpi-label">Throughput</div>
+            <div class="kpi-value">${throughput}/min</div>
+            <div class="tooltip">Tests completed per minute (Total tests ÷ Duration in minutes)</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">Threads</div>
+            <div class="kpi-value">${workers}</div>
+            <div class="tooltip">Number of parallel threads used for test execution</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">Error Rate</div>
+            <div class="kpi-value">${r.total > 0 ? ((r.failed / r.total) * 100).toFixed(1) : 0}%</div>
+            <div class="tooltip">Percentage of failed tests (Failed ÷ Total × 100)</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">Top Failing Step</div>
+            <div class="kpi-value" style="font-size: 12px;">${topFailingSteps.length > 0 ? esc(topFailingSteps[0].name.substring(0, 20)) + (topFailingSteps[0].name.length > 20 ? '...' : '') : '—'}</div>
+            <div class="tooltip">${topFailingSteps.length > 0 ? `Step with most failures: ${topFailingSteps[0].failed} failures (${topFailingSteps[0].errorRate}% error rate)` : 'No failing steps'}</div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="groupbox">
         <legend>📈 Test Statistics</legend>
         <table>
           <tr><th>Total Runs</th><th>Passed ✓</th><th>Failed ✗</th><th>Success Rate</th></tr>
@@ -233,6 +417,27 @@ function generateHTML(r) {
             <td><b>${rate}%</b></td>
           </tr>
         </table>
+      </div>
+      
+      <div class="groupbox">
+        <legend>📊 Step Success Rate</legend>
+        <div class="chart-container">
+          ${stepNames.length > 0 ? '<canvas id="stepChart"></canvas>' : '<div class="no-data">No step data available</div>'}
+        </div>
+      </div>
+      
+      <div class="groupbox">
+        <legend>📈 Test Completion Timeline</legend>
+        <div class="chart-container">
+          ${timelineData.labels.length > 0 ? '<canvas id="timelineChart"></canvas>' : '<div class="no-data">No timeline data available</div>'}
+        </div>
+      </div>
+      
+      <div class="groupbox">
+        <legend>⏱️ Duration Distribution</legend>
+        <div class="chart-container">
+          ${durationBuckets.labels.length > 0 ? '<canvas id="durationChart"></canvas>' : '<div class="no-data">No duration data available</div>'}
+        </div>
       </div>
       
       <h2>⚠️ Failure Details</h2>
@@ -264,6 +469,154 @@ function generateHTML(r) {
           .catch(() => { btn.textContent = 'View'; btn.disabled = false; });
       }
     }
+    
+    ${stepNames.length > 0 ? `
+    const stepData = ${JSON.stringify(stepData)};
+    const ctx = document.getElementById('stepChart').getContext('2d');
+    new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: stepData.map(s => s.name.length > 25 ? s.name.substring(0, 25) + '...' : s.name),
+        datasets: [
+          {
+            label: 'Passed',
+            data: stepData.map(s => s.passed),
+            backgroundColor: 'rgba(0, 128, 0, 0.7)',
+            borderColor: 'rgba(0, 128, 0, 1)',
+            borderWidth: 1
+          },
+          {
+            label: 'Failed',
+            data: stepData.map(s => s.failed),
+            backgroundColor: 'rgba(204, 0, 0, 0.7)',
+            borderColor: 'rgba(204, 0, 0, 1)',
+            borderWidth: 1
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'top' },
+          tooltip: {
+            callbacks: {
+              title: function(context) {
+                const idx = context[0].dataIndex;
+                return stepData[idx].name;
+              },
+              afterBody: function(context) {
+                const idx = context[0].dataIndex;
+                const step = stepData[idx];
+                return 'Error Rate: ' + step.errorRate + '%';
+              }
+            }
+          }
+        },
+        scales: {
+          x: { stacked: true },
+          y: { stacked: true, beginAtZero: true, title: { display: true, text: 'Executions' } }
+        }
+      }
+    });
+    ` : ''}
+    
+    ${timelineData.labels.length > 0 ? `
+    const timelineData = ${JSON.stringify(timelineData)};
+    const timelineCtx = document.getElementById('timelineChart').getContext('2d');
+    new Chart(timelineCtx, {
+      type: 'line',
+      data: {
+        labels: timelineData.labels,
+        datasets: [
+          {
+            label: 'Cumulative Tests',
+            data: timelineData.cumulative,
+            borderColor: 'rgba(0, 51, 153, 1)',
+            backgroundColor: 'rgba(0, 51, 153, 0.1)',
+            fill: true,
+            tension: 0.3,
+            yAxisID: 'y'
+          },
+          {
+            label: 'Passed',
+            data: timelineData.passed,
+            borderColor: 'rgba(0, 128, 0, 1)',
+            backgroundColor: 'rgba(0, 128, 0, 0.7)',
+            type: 'bar',
+            yAxisID: 'y1'
+          },
+          {
+            label: 'Failed',
+            data: timelineData.failed,
+            borderColor: 'rgba(204, 0, 0, 1)',
+            backgroundColor: 'rgba(204, 0, 0, 0.7)',
+            type: 'bar',
+            yAxisID: 'y1'
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { position: 'top' },
+          tooltip: {
+            callbacks: {
+              title: function(context) {
+                return 'Time: ' + context[0].label + ' from start';
+              }
+            }
+          }
+        },
+        scales: {
+          x: { title: { display: true, text: 'Time from start' } },
+          y: { type: 'linear', position: 'left', title: { display: true, text: 'Cumulative' }, beginAtZero: true },
+          y1: { type: 'linear', position: 'right', title: { display: true, text: 'Per second' }, beginAtZero: true, grid: { drawOnChartArea: false } }
+        }
+      }
+    });
+    ` : ''}
+    
+    ${durationBuckets.labels.length > 0 ? `
+    const durationData = ${JSON.stringify(durationBuckets)};
+    const durationCtx = document.getElementById('durationChart').getContext('2d');
+    new Chart(durationCtx, {
+      type: 'bar',
+      data: {
+        labels: durationData.labels,
+        datasets: [{
+          label: 'Number of tests',
+          data: durationData.counts,
+          backgroundColor: 'rgba(0, 102, 204, 0.7)',
+          borderColor: 'rgba(0, 102, 204, 1)',
+          borderWidth: 1
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              title: function(context) {
+                return 'Duration range: ' + context[0].label;
+              },
+              label: function(context) {
+                return context.raw + ' test(s)';
+              }
+            }
+          }
+        },
+        scales: {
+          x: { title: { display: true, text: 'Test Duration' } },
+          y: { beginAtZero: true, title: { display: true, text: 'Number of tests' } }
+        }
+      }
+    });
+    ` : ''}
   </script>
 </body>
 </html>`;

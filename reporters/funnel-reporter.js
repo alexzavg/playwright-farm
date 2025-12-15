@@ -9,17 +9,31 @@ class FunnelReporter {
       failed: 0,
       startTime: null,
       endTime: null,
+      testDurations: [],
+      testTimeline: [],
+      workers: 1,
+      stepStats: {},
       failures: {}
     };
   }
 
   onBegin(config, suite) {
     this.results.startTime = new Date().toISOString();
+    this.results.workers = config.workers || 1;
     this.outputDir = config.outputDir || './test-results';
   }
 
   onTestEnd(test, result) {
     this.results.total++;
+    this.results.testDurations.push(result.duration);
+    
+    this.results.testTimeline.push({
+      completedAt: Date.now(),
+      duration: result.duration,
+      status: result.status === 'passed' ? 'passed' : 'failed'
+    });
+    
+    this.collectStepStats(result, result.status === 'passed');
     
     if (result.status === 'passed') {
       this.results.passed++;
@@ -84,6 +98,26 @@ class FunnelReporter {
       }
     }
     return null;
+  }
+
+  collectStepStats(result, passed) {
+    if (!result.steps) return;
+    
+    for (const step of result.steps) {
+      if (step.category !== 'test.step') continue;
+      
+      const stepName = step.title;
+      if (!this.results.stepStats[stepName]) {
+        this.results.stepStats[stepName] = { total: 0, passed: 0, failed: 0 };
+      }
+      
+      this.results.stepStats[stepName].total++;
+      if (step.error) {
+        this.results.stepStats[stepName].failed++;
+      } else {
+        this.results.stepStats[stepName].passed++;
+      }
+    }
   }
 
   normalizeError(message) {
