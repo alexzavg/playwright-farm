@@ -26,6 +26,11 @@ class ProductPage {
     await this.page.waitForEvent('dialog', { timeout: 10000 });
     return this;
   }
+
+  async verifyDetailsVisible() {
+    await expect(this.sel.content).toBeVisible({ timeout: 10000 });
+    return this;
+  }
 }
 
 module.exports = ProductPage;

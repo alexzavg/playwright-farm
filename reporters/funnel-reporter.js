@@ -13,6 +13,7 @@ class FunnelReporter {
       testTimeline: [],
       workers: 1,
       stepStats: {},
+      specStats: {},
       failures: {}
     };
   }
@@ -24,26 +25,28 @@ class FunnelReporter {
   }
 
   onTestEnd(test, result) {
+    const specFile = path.basename(test.location.file);
+    const isPassed = result.status === 'passed';
+    
     this.results.total++;
     this.results.testDurations.push(result.duration);
     
     this.results.testTimeline.push({
       completedAt: Date.now(),
       duration: result.duration,
-      status: result.status === 'passed' ? 'passed' : 'failed'
+      status: isPassed ? 'passed' : 'failed'
     });
     
-    this.collectStepStats(result, result.status === 'passed');
+    this.collectStepStats(result, isPassed);
+    this.collectSpecStats(specFile, result, isPassed);
     
-    if (result.status === 'passed') {
+    if (isPassed) {
       this.results.passed++;
       return;
     }
 
     if (result.status === 'failed' || result.status === 'timedOut') {
       this.results.failed++;
-      
-      const specFile = path.basename(test.location.file);
       const stepName = this.extractFailedStep(result) || 'Unknown step';
       const errorMessage = this.normalizeError(result.error?.message || 'Unknown error');
       const traceFile = this.findTraceFile(result);
@@ -100,24 +103,56 @@ class FunnelReporter {
     return null;
   }
 
-  collectStepStats(result, passed) {
+  collectStepStats(result, passed, targetStats = null) {
     if (!result.steps) return;
+    
+    const stats = targetStats || this.results.stepStats;
     
     for (const step of result.steps) {
       if (step.category !== 'test.step') continue;
       
       const stepName = step.title;
-      if (!this.results.stepStats[stepName]) {
-        this.results.stepStats[stepName] = { total: 0, passed: 0, failed: 0 };
+      if (!stats[stepName]) {
+        stats[stepName] = { total: 0, passed: 0, failed: 0 };
       }
       
-      this.results.stepStats[stepName].total++;
+      stats[stepName].total++;
       if (step.error) {
-        this.results.stepStats[stepName].failed++;
+        stats[stepName].failed++;
       } else {
-        this.results.stepStats[stepName].passed++;
+        stats[stepName].passed++;
       }
     }
+  }
+
+  collectSpecStats(specFile, result, isPassed) {
+    if (!this.results.specStats[specFile]) {
+      this.results.specStats[specFile] = {
+        total: 0,
+        passed: 0,
+        failed: 0,
+        testDurations: [],
+        testTimeline: [],
+        stepStats: {}
+      };
+    }
+    
+    const spec = this.results.specStats[specFile];
+    spec.total++;
+    spec.testDurations.push(result.duration);
+    spec.testTimeline.push({
+      completedAt: Date.now(),
+      duration: result.duration,
+      status: isPassed ? 'passed' : 'failed'
+    });
+    
+    if (isPassed) {
+      spec.passed++;
+    } else {
+      spec.failed++;
+    }
+    
+    this.collectStepStats(result, isPassed, spec.stepStats);
   }
 
   normalizeError(message) {

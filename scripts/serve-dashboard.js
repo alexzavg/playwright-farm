@@ -161,6 +161,66 @@ function generateHTML(r) {
   const timelineData = processTimelineData(testTimeline, startTime);
   const durationBuckets = processDurationDistribution(r.testDurations || []);
   
+  const specStats = r.specStats || {};
+  const specNames = Object.keys(specStats);
+  const specsData = specNames.map((name, idx) => {
+    const spec = specStats[name];
+    const specStepNames = Object.keys(spec.stepStats || {});
+    const specStepData = specStepNames.map(sn => ({
+      name: sn,
+      total: spec.stepStats[sn].total,
+      passed: spec.stepStats[sn].passed,
+      failed: spec.stepStats[sn].failed,
+      errorRate: spec.stepStats[sn].total > 0 
+        ? ((spec.stepStats[sn].failed / spec.stepStats[sn].total) * 100).toFixed(1) 
+        : 0
+    }));
+    const specTimeline = processTimelineData(spec.testTimeline || [], startTime);
+    const specDurations = processDurationDistribution(spec.testDurations || []);
+    const specAvgDuration = spec.testDurations.length > 0 
+      ? spec.testDurations.reduce((a, b) => a + b, 0) / spec.testDurations.length 
+      : 0;
+    const specTotalDuration = spec.testDurations.reduce((a, b) => a + b, 0);
+    const specThroughput = specTotalDuration > 0 ? (spec.total / (specTotalDuration / 60000)).toFixed(1) : 0;
+    const topFailing = [...specStepData].filter(s => s.failed > 0).sort((a, b) => b.failed - a.failed)[0];
+    
+    let specFailuresHTML = '';
+    const specFailures = r.failures[name] || {};
+    if (Object.keys(specFailures).length === 0) {
+      specFailuresHTML = '<p class="all-pass">All tests passed!</p>';
+    } else {
+      for (const [step, errors] of Object.entries(specFailures)) {
+        let stepTotal = 0;
+        let errorsHTML = '';
+        for (const [err, data] of Object.entries(errors)) {
+          stepTotal += data.count;
+          let tracesHTML = data.traces.map((t, i) => {
+            const p = t.trace ? `/test-results/${t.trace.replace('test-results/', '')}` : '#';
+            return `<div class="trace-row">Run #${i + 1} <button class="trace-btn" onclick="openTrace('${p}',this)">View</button></div>`;
+          }).join('');
+          errorsHTML += `<details class="error-details"><summary class="error-sum">${esc(err)} <b>(${data.count}x)</b></summary>${tracesHTML}</details>`;
+        }
+        specFailuresHTML += `<details class="step-details"><summary class="step-sum">${esc(step)} <b>(${stepTotal}x)</b></summary>${errorsHTML}</details>`;
+      }
+    }
+    
+    return {
+      id: idx,
+      name,
+      total: spec.total,
+      passed: spec.passed,
+      failed: spec.failed,
+      rate: spec.total > 0 ? ((spec.passed / spec.total) * 100).toFixed(1) : 0,
+      avgDuration: specAvgDuration,
+      throughput: specThroughput,
+      topFailing,
+      stepData: specStepData,
+      timeline: specTimeline,
+      durations: specDurations,
+      failuresHTML: specFailuresHTML
+    };
+  });
+  
   let failuresHTML = '';
   if (Object.keys(r.failures).length === 0) {
     failuresHTML = '<p class="all-pass">All tests passed!</p>';
@@ -325,6 +385,31 @@ function generateHTML(r) {
     }
     .no-data { text-align: center; color: #666; padding: 40px; font-style: italic; }
     
+    .spec-section {
+      border: 2px solid #848484; margin: 15px 0; background: #f5f4ea;
+    }
+    .spec-section > summary {
+      background: linear-gradient(180deg, #0a58ca 0%, #3d95f7 50%, #0a58ca 100%);
+      color: white; font-weight: bold; padding: 8px 12px; cursor: pointer;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .spec-section > summary:hover { background: linear-gradient(180deg, #1a68da 0%, #4da5ff 50%, #1a68da 100%); }
+    .spec-section > summary::marker { color: white; }
+    .spec-section-body { padding: 10px; }
+    .spec-badge { 
+      font-size: 11px; padding: 2px 8px; border-radius: 10px; margin-left: 10px;
+    }
+    .spec-badge.pass { background: #008000; }
+    .spec-badge.fail { background: #cc0000; }
+    .spec-mini-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 10px; }
+    .spec-mini-card {
+      background: linear-gradient(180deg, #fff 0%, #e8e6de 100%);
+      border: 1px inset #808080; padding: 6px; text-align: center; font-size: 12px;
+    }
+    .spec-mini-card .label { font-size: 10px; color: #666; }
+    .spec-mini-card .value { font-weight: bold; color: #003399; }
+    .spec-chart { height: 180px; margin-top: 8px; }
+    
     .taskbar {
       position: fixed; bottom: 0; left: 0; right: 0; height: 30px;
       background: linear-gradient(180deg, #3168d5 0%, #4993e6 3%, #306ac7 5%, #0b3a8c 100%);
@@ -355,93 +440,107 @@ function generateHTML(r) {
     </div>
     <div class="window-body">
       <div class="groupbox">
-        <legend>⏱️ Run Timing</legend>
+        <legend>📋 Run Summary</legend>
         <div class="kpi-grid">
           <div class="kpi-card">
             <div class="kpi-label">Start Time</div>
             <div class="kpi-value">${formatTime(r.startTime)}</div>
-            <div class="tooltip">When the test run started executing</div>
+            <div class="tooltip">When the test run started</div>
           </div>
           <div class="kpi-card">
             <div class="kpi-label">End Time</div>
             <div class="kpi-value">${formatTime(r.endTime)}</div>
-            <div class="tooltip">When all tests finished executing</div>
+            <div class="tooltip">When the test run ended</div>
           </div>
           <div class="kpi-card">
             <div class="kpi-label">Total Duration</div>
             <div class="kpi-value">${formatDuration(totalDuration)}</div>
-            <div class="tooltip">Wall-clock time from start to end (End Time − Start Time)</div>
-          </div>
-          <div class="kpi-card">
-            <div class="kpi-label">Avg Test Duration</div>
-            <div class="kpi-value">${formatDuration(Math.round(avgDuration))}</div>
-            <div class="tooltip">Average execution time per test (Sum of all test durations ÷ Total tests)</div>
-          </div>
-        </div>
-      </div>
-      
-      <div class="groupbox">
-        <legend>🚀 Performance</legend>
-        <div class="kpi-grid">
-          <div class="kpi-card">
-            <div class="kpi-label">Throughput</div>
-            <div class="kpi-value">${throughput}/min</div>
-            <div class="tooltip">Tests completed per minute (Total tests ÷ Duration in minutes)</div>
+            <div class="tooltip">Wall-clock time from start to end</div>
           </div>
           <div class="kpi-card">
             <div class="kpi-label">Threads</div>
             <div class="kpi-value">${workers}</div>
-            <div class="tooltip">Number of parallel threads used for test execution</div>
-          </div>
-          <div class="kpi-card">
-            <div class="kpi-label">Error Rate</div>
-            <div class="kpi-value">${r.total > 0 ? ((r.failed / r.total) * 100).toFixed(1) : 0}%</div>
-            <div class="tooltip">Percentage of failed tests (Failed ÷ Total × 100)</div>
-          </div>
-          <div class="kpi-card">
-            <div class="kpi-label">Top Failing Step</div>
-            <div class="kpi-value" style="font-size: 12px;">${topFailingSteps.length > 0 ? esc(topFailingSteps[0].name.substring(0, 20)) + (topFailingSteps[0].name.length > 20 ? '...' : '') : '—'}</div>
-            <div class="tooltip">${topFailingSteps.length > 0 ? `Step with most failures: ${topFailingSteps[0].failed} failures (${topFailingSteps[0].errorRate}% error rate)` : 'No failing steps'}</div>
+            <div class="tooltip">Number of parallel threads</div>
           </div>
         </div>
       </div>
       
-      <div class="groupbox">
-        <legend>📈 Test Statistics</legend>
-        <table>
-          <tr><th>Total Runs</th><th>Passed ✓</th><th>Failed ✗</th><th>Success Rate</th></tr>
-          <tr>
-            <td><b>${r.total}</b></td>
-            <td class="pass">${r.passed}</td>
-            <td class="fail">${r.failed}</td>
-            <td><b>${rate}%</b></td>
-          </tr>
-        </table>
-      </div>
-      
-      <div class="groupbox">
-        <legend>📊 Step Success Rate</legend>
-        <div class="chart-container">
-          ${stepNames.length > 0 ? '<canvas id="stepChart"></canvas>' : '<div class="no-data">No step data available</div>'}
-        </div>
-      </div>
-      
-      <div class="groupbox">
-        <legend>📈 Test Completion Timeline</legend>
-        <div class="chart-container">
-          ${timelineData.labels.length > 0 ? '<canvas id="timelineChart"></canvas>' : '<div class="no-data">No timeline data available</div>'}
-        </div>
-      </div>
-      
-      <div class="groupbox">
-        <legend>⏱️ Duration Distribution</legend>
-        <div class="chart-container">
-          ${durationBuckets.labels.length > 0 ? '<canvas id="durationChart"></canvas>' : '<div class="no-data">No duration data available</div>'}
-        </div>
-      </div>
-      
-      <h2>⚠️ Failure Details</h2>
-      ${failuresHTML}
+      ${specsData.map(spec => `
+        <details class="spec-section">
+          <summary>
+            <span>📄 ${esc(spec.name)}</span>
+            <span>
+              <span class="spec-badge pass">${spec.passed} passed</span>
+              ${spec.failed > 0 ? `<span class="spec-badge fail">${spec.failed} failed</span>` : ''}
+              <span style="margin-left:10px;font-weight:normal;font-size:11px;">${spec.rate}%</span>
+            </span>
+          </summary>
+          <div class="spec-section-body">
+            <div class="kpi-grid">
+              <div class="kpi-card">
+                <div class="kpi-label">Total</div>
+                <div class="kpi-value">${spec.total}</div>
+                <div class="tooltip">Total test executions for this spec</div>
+              </div>
+              <div class="kpi-card">
+                <div class="kpi-label">Passed</div>
+                <div class="kpi-value" style="color:#008000">${spec.passed}</div>
+                <div class="tooltip">Number of passed tests</div>
+              </div>
+              <div class="kpi-card">
+                <div class="kpi-label">Failed</div>
+                <div class="kpi-value" style="color:#cc0000">${spec.failed}</div>
+                <div class="tooltip">Number of failed tests</div>
+              </div>
+              <div class="kpi-card">
+                <div class="kpi-label">Error Rate</div>
+                <div class="kpi-value">${spec.total > 0 ? ((spec.failed / spec.total) * 100).toFixed(1) : 0}%</div>
+                <div class="tooltip">Percentage of failed tests</div>
+              </div>
+            </div>
+            <div class="kpi-grid">
+              <div class="kpi-card">
+                <div class="kpi-label">Avg Duration</div>
+                <div class="kpi-value">${formatDuration(Math.round(spec.avgDuration))}</div>
+                <div class="tooltip">Average test execution time</div>
+              </div>
+              <div class="kpi-card">
+                <div class="kpi-label">Throughput</div>
+                <div class="kpi-value">${spec.throughput}/min</div>
+                <div class="tooltip">Tests completed per minute</div>
+              </div>
+              <div class="kpi-card">
+                <div class="kpi-label">Top Failing Step</div>
+                <div class="kpi-value" style="font-size: 11px;">${spec.topFailing ? esc(spec.topFailing.name.substring(0, 18)) + (spec.topFailing.name.length > 18 ? '...' : '') : '—'}</div>
+                <div class="tooltip">${spec.topFailing ? `${spec.topFailing.failed} failures (${spec.topFailing.errorRate}% error rate)` : 'No failing steps'}</div>
+              </div>
+              <div class="kpi-card">
+                <div class="kpi-label">Success Rate</div>
+                <div class="kpi-value">${spec.rate}%</div>
+                <div class="tooltip">Percentage of passed tests</div>
+              </div>
+            </div>
+            
+            ${spec.stepData.length > 0 ? `
+            <h2 style="margin-top:15px;">📊 Step Success Rate</h2>
+            <div class="chart-container spec-chart"><canvas id="specStepChart${spec.id}"></canvas></div>
+            ` : ''}
+            
+            ${spec.timeline.labels.length > 0 ? `
+            <h2>📈 Timeline</h2>
+            <div class="chart-container spec-chart"><canvas id="specTimelineChart${spec.id}"></canvas></div>
+            ` : ''}
+            
+            ${spec.durations.labels.length > 0 ? `
+            <h2>⏱️ Duration Distribution</h2>
+            <div class="chart-container spec-chart"><canvas id="specDurationChart${spec.id}"></canvas></div>
+            ` : ''}
+            
+            <h2>⚠️ Failure Details</h2>
+            ${spec.failuresHTML}
+          </div>
+        </details>
+      `).join('')}
     </div>
     <div class="status-bar">
       <span class="status-bar-field">Ready</span>
@@ -470,154 +569,85 @@ function generateHTML(r) {
       }
     }
     
-    ${stepNames.length > 0 ? `
-    const stepData = ${JSON.stringify(stepData)};
-    const ctx = document.getElementById('stepChart').getContext('2d');
-    new Chart(ctx, {
-      type: 'bar',
-      data: {
-        labels: stepData.map(s => s.name.length > 25 ? s.name.substring(0, 25) + '...' : s.name),
-        datasets: [
-          {
-            label: 'Passed',
-            data: stepData.map(s => s.passed),
-            backgroundColor: 'rgba(0, 128, 0, 0.7)',
-            borderColor: 'rgba(0, 128, 0, 1)',
-            borderWidth: 1
-          },
-          {
-            label: 'Failed',
-            data: stepData.map(s => s.failed),
-            backgroundColor: 'rgba(204, 0, 0, 0.7)',
-            borderColor: 'rgba(204, 0, 0, 1)',
-            borderWidth: 1
-          }
-        ]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { position: 'top' },
-          tooltip: {
-            callbacks: {
-              title: function(context) {
-                const idx = context[0].dataIndex;
-                return stepData[idx].name;
-              },
-              afterBody: function(context) {
-                const idx = context[0].dataIndex;
-                const step = stepData[idx];
-                return 'Error Rate: ' + step.errorRate + '%';
-              }
-            }
-          }
-        },
-        scales: {
-          x: { stacked: true },
-          y: { stacked: true, beginAtZero: true, title: { display: true, text: 'Executions' } }
-        }
-      }
-    });
-    ` : ''}
-    
-    ${timelineData.labels.length > 0 ? `
-    const timelineData = ${JSON.stringify(timelineData)};
-    const timelineCtx = document.getElementById('timelineChart').getContext('2d');
-    new Chart(timelineCtx, {
-      type: 'line',
-      data: {
-        labels: timelineData.labels,
-        datasets: [
-          {
-            label: 'Cumulative Tests',
-            data: timelineData.cumulative,
-            borderColor: 'rgba(0, 51, 153, 1)',
-            backgroundColor: 'rgba(0, 51, 153, 0.1)',
-            fill: true,
-            tension: 0.3,
-            yAxisID: 'y'
-          },
-          {
-            label: 'Passed',
-            data: timelineData.passed,
-            borderColor: 'rgba(0, 128, 0, 1)',
-            backgroundColor: 'rgba(0, 128, 0, 0.7)',
+    const specsData = ${JSON.stringify(specsData)};
+    specsData.forEach(spec => {
+      // Step chart
+      if (spec.stepData.length > 0) {
+        const stepCanvas = document.getElementById('specStepChart' + spec.id);
+        if (stepCanvas) {
+          new Chart(stepCanvas.getContext('2d'), {
             type: 'bar',
-            yAxisID: 'y1'
-          },
-          {
-            label: 'Failed',
-            data: timelineData.failed,
-            borderColor: 'rgba(204, 0, 0, 1)',
-            backgroundColor: 'rgba(204, 0, 0, 0.7)',
-            type: 'bar',
-            yAxisID: 'y1'
-          }
-        ]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        interaction: { mode: 'index', intersect: false },
-        plugins: {
-          legend: { position: 'top' },
-          tooltip: {
-            callbacks: {
-              title: function(context) {
-                return 'Time: ' + context[0].label + ' from start';
-              }
-            }
-          }
-        },
-        scales: {
-          x: { title: { display: true, text: 'Time from start' } },
-          y: { type: 'linear', position: 'left', title: { display: true, text: 'Cumulative' }, beginAtZero: true },
-          y1: { type: 'linear', position: 'right', title: { display: true, text: 'Per second' }, beginAtZero: true, grid: { drawOnChartArea: false } }
-        }
-      }
-    });
-    ` : ''}
-    
-    ${durationBuckets.labels.length > 0 ? `
-    const durationData = ${JSON.stringify(durationBuckets)};
-    const durationCtx = document.getElementById('durationChart').getContext('2d');
-    new Chart(durationCtx, {
-      type: 'bar',
-      data: {
-        labels: durationData.labels,
-        datasets: [{
-          label: 'Number of tests',
-          data: durationData.counts,
-          backgroundColor: 'rgba(0, 102, 204, 0.7)',
-          borderColor: 'rgba(0, 102, 204, 1)',
-          borderWidth: 1
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            callbacks: {
-              title: function(context) {
-                return 'Duration range: ' + context[0].label;
+            data: {
+              labels: spec.stepData.map(s => s.name.length > 20 ? s.name.substring(0, 20) + '...' : s.name),
+              datasets: [
+                { label: 'Passed', data: spec.stepData.map(s => s.passed), backgroundColor: 'rgba(0, 128, 0, 0.7)', borderWidth: 1 },
+                { label: 'Failed', data: spec.stepData.map(s => s.failed), backgroundColor: 'rgba(204, 0, 0, 0.7)', borderWidth: 1 }
+              ]
+            },
+            options: {
+              responsive: true, maintainAspectRatio: false,
+              plugins: {
+                legend: { position: 'top' },
+                tooltip: { callbacks: {
+                  title: ctx => spec.stepData[ctx[0].dataIndex].name,
+                  afterBody: ctx => 'Error Rate: ' + spec.stepData[ctx[0].dataIndex].errorRate + '%'
+                }}
               },
-              label: function(context) {
-                return context.raw + ' test(s)';
+              scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } }
+            }
+          });
+        }
+      }
+      
+      // Timeline chart
+      if (spec.timeline.labels.length > 0) {
+        const tlCanvas = document.getElementById('specTimelineChart' + spec.id);
+        if (tlCanvas) {
+          new Chart(tlCanvas.getContext('2d'), {
+            type: 'line',
+            data: {
+              labels: spec.timeline.labels,
+              datasets: [
+                { label: 'Cumulative', data: spec.timeline.cumulative, borderColor: 'rgba(0, 51, 153, 1)', backgroundColor: 'rgba(0, 51, 153, 0.1)', fill: true, tension: 0.3, yAxisID: 'y' },
+                { label: 'Passed', data: spec.timeline.passed, backgroundColor: 'rgba(0, 128, 0, 0.7)', type: 'bar', yAxisID: 'y1' },
+                { label: 'Failed', data: spec.timeline.failed, backgroundColor: 'rgba(204, 0, 0, 0.7)', type: 'bar', yAxisID: 'y1' }
+              ]
+            },
+            options: {
+              responsive: true, maintainAspectRatio: false,
+              interaction: { mode: 'index', intersect: false },
+              plugins: { legend: { position: 'top' } },
+              scales: {
+                x: { title: { display: true, text: 'Time from start' } },
+                y: { position: 'left', beginAtZero: true },
+                y1: { position: 'right', beginAtZero: true, grid: { drawOnChartArea: false } }
               }
             }
-          }
-        },
-        scales: {
-          x: { title: { display: true, text: 'Test Duration' } },
-          y: { beginAtZero: true, title: { display: true, text: 'Number of tests' } }
+          });
+        }
+      }
+      
+      // Duration chart
+      if (spec.durations.labels.length > 0) {
+        const durCanvas = document.getElementById('specDurationChart' + spec.id);
+        if (durCanvas) {
+          new Chart(durCanvas.getContext('2d'), {
+            type: 'bar',
+            data: {
+              labels: spec.durations.labels,
+              datasets: [{ data: spec.durations.counts, backgroundColor: 'rgba(0, 102, 204, 0.7)', borderWidth: 1 }]
+            },
+            options: {
+              responsive: true, maintainAspectRatio: false,
+              plugins: { legend: { display: false } },
+              scales: { y: { beginAtZero: true } }
+            }
+          });
         }
       }
     });
-    ` : ''}
-  </script>
+    
+      </script>
 </body>
 </html>`;
 }
