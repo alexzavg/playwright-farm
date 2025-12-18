@@ -23,8 +23,8 @@ module.exports = defineConfig({
     headless: true,
     baseURL: 'https://www.demoblaze.com',
     trace: 'on',
-    screenshot: 'on',
-    video: 'on-first-retry',
+    // screenshot: 'on',
+    // video: 'on-first-retry',
   },
 
   projects: [selectedProject],
