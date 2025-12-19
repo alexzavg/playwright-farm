@@ -29,16 +29,16 @@ npm run dashboard
 
 ## 📋 Commands
 
-| Command | Workers | Repeats | Total | Description |
-|---------|---------|---------|-------|-------------|
-| `npm run test:demoblaze:all` | 10 | 100 | 1000 | Standard Chrome run with higher iterations |
-| `npm run test:chrome-heavy` | 20 | 160 | 3200 | Heavy load |
-| `npm run test:android` | 10 | 50 | 500 | Android emulation |
-| `npm run test:android-landscape` | 10 | 50 | 500 | Android landscape |
-| `npm run test:iphone` | 10 | 50 | 500 | iPhone emulation |
-| `npm run test:iphone-landscape` | 10 | 50 | 500 | iPhone landscape |
-| `npm run dashboard` | - | - | - | Open dashboard |
-| `npm run clean` | - | - | - | Clean reports |
+| Command | Workers | Repeats | Description |
+|---------|---------|---------|-------------|
+| `npm run test:demoblaze:all` | 10 | 100 | Standard Chrome run with higher iterations |
+| `npm run test:chrome-heavy` | 20 | 160 | Heavy load |
+| `npm run test:android` | 10 | 50 | Android emulation |
+| `npm run test:android-landscape` | 10 | 50 | Android landscape |
+| `npm run test:iphone` | 10 | 50 | iPhone emulation |
+| `npm run test:iphone-landscape` | 10 | 50 | iPhone landscape |
+| `npm run dashboard` | - | - | Open dashboard |
+| `npm run clean` | - | - | Clean reports |
 
 ## 🎯 Custom Load
 
