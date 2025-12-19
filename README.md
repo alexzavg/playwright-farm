@@ -1,77 +1,77 @@
 # Playwright Load Test Farm
 
-Нагрузочное тестирование e-commerce воронок с Playwright, Page Object Model и кастомным Windows XP дашбордом.
+Load testing e-commerce funnels with Playwright, Page Object Model and a custom Windows XP-style dashboard.
 
-## � Table of Contents
+## 📑 Table of Contents
 
-- [Быстрый старт](#-быстрый-старт)
-- [Команды](#-команды)
-- [Кастомная нагрузка](#-кастомная-нагрузка)
-- [Дашборд](#-дашборд-windows-xp-style)
-- [Структура проекта](#-структура-проекта)
-- [Архитектура](#️-архитектура)
-- [Тестовый сценарий](#-тестовый-сценарий)
-- [Технологии](#️-технологии)
+- [Quick Start](#-quick-start)
+- [Commands](#-commands)
+- [Custom Load](#-custom-load)
+- [Dashboard](#-dashboard-windows-xp-style)
+- [Project Structure](#-project-structure)
+- [Architecture](#️-architecture)
+- [Test Scenario](#-test-scenario)
+- [Technologies](#️-technologies)
 
-## �🚀 Быстрый старт
+## 🚀 Quick Start
 
 ```bash
-# Установка
+# Installation
 npm install
 npx playwright install chromium
 
-# Запуск тестов (50 прогонов) + автооткрытие дашборда
-npm run test:chrome
+# Run tests (100 runs) + auto-open dashboard
+npm run test:demoblaze:all
 
-# Или только дашборд (если тесты уже были)
+# Or just open dashboard (if tests were already run)
 npm run dashboard
 ```
 
-## 📋 Команды
+## 📋 Commands
 
-| Команда | Workers | Repeats | Total | Описание |
-|---------|---------|---------|-------|----------|
-| `npm run test:chrome` | 10 | 5 | 50 | Стандартный прогон Chrome |
-| `npm run test:chrome-heavy` | 20 | 200 | 4000 | Тяжёлая нагрузка |
-| `npm run test:android` | 10 | 50 | 500 | Android эмуляция |
-| `npm run test:android-landscape` | 10 | 50 | 500 | Android ландшафт |
-| `npm run test:iphone` | 10 | 50 | 500 | iPhone эмуляция |
-| `npm run test:iphone-landscape` | 10 | 50 | 500 | iPhone ландшафт |
-| `npm run dashboard` | - | - | - | Открыть дашборд |
-| `npm run clean` | - | - | - | Очистка репортов |
+| Command | Workers | Repeats | Total | Description |
+|---------|---------|---------|-------|-------------|
+| `npm run test:demoblaze:all` | 10 | 100 | 1000 | Standard Chrome run with higher iterations |
+| `npm run test:chrome-heavy` | 20 | 160 | 3200 | Heavy load |
+| `npm run test:android` | 10 | 50 | 500 | Android emulation |
+| `npm run test:android-landscape` | 10 | 50 | 500 | Android landscape |
+| `npm run test:iphone` | 10 | 50 | 500 | iPhone emulation |
+| `npm run test:iphone-landscape` | 10 | 50 | 500 | iPhone landscape |
+| `npm run dashboard` | - | - | - | Open dashboard |
+| `npm run clean` | - | - | - | Clean reports |
 
-## 🎯 Кастомная нагрузка
+## 🎯 Custom Load
 
 ```bash
-# Свои параметры
+# Custom parameters
 npx playwright test demoblaze --workers=30 --repeat-each=100
 
-# Конкретный девайс
+# Specific device
 DEVICE=android npx playwright test demoblaze --workers=5
 ```
 
-## 📊 Дашборд (Windows XP style)
+## 📊 Dashboard (Windows XP style)
 
-После тестов автоматически открывается дашборд:
+After tests, the dashboard opens automatically:
 
-- **Статистика**: Total / Passed / Failed / Success Rate
-- **Иерархия фейлов**: Spec → Step → Error → Traces
+- **Statistics**: Total / Passed / Failed / Success Rate
+- **Failure Hierarchy**: Spec → Step → Error → Traces
 - **Trace Viewer**: 
-  - Локально — открывает нативный Playwright trace viewer
-  - На сервере (S3) — открывает trace.playwright.dev
+  - Local — opens native Playwright trace viewer
+  - On server (S3) — opens trace.playwright.dev
 
-## 📁 Структура проекта
+## 📁 Project Structure
 
 ```
 playwright-farm/
 ├── support/                   # Page Objects, Selectors, Fixtures
-│   ├── fixtures.js            # Общие fixtures для всех проектов
+│   ├── fixtures.js            # Shared fixtures for all projects
 │   ├── pages/
-│   │   └── demoblaze/         # Page Objects по проектам
+│   │   └── demoblaze/         # Page Objects per project
 │   └── selectors/
-│       └── demoblaze/         # Селекторы по проектам
+│       └── demoblaze/         # Selectors per project
 ├── tests/
-│   └── demoblaze/             # Спеки по проектам
+│   └── demoblaze/             # Specs per project
 │       └── checkout.spec.js
 ├── reporters/
 │   └── funnel-reporter.js
@@ -81,9 +81,9 @@ playwright-farm/
 └── playwright.config.js
 ```
 
-## 🏗️ Архитектура
+## 🏗️ Architecture
 
-### Использование в спеке
+### Usage in spec
 
 ```javascript
 const { test } = require('../../support/fixtures');
@@ -98,29 +98,25 @@ test('Sales funnel', async ({ demoblaze }) => {
 });
 ```
 
-### Добавление нового проекта
+### Adding a new project
 
 1. `support/pages/newproject/` — page objects
-2. `support/selectors/newproject/` — селекторы
-3. Добавить fixture в `support/fixtures.js`
-4. `tests/newproject/` — спеки
+2. `support/selectors/newproject/` — selectors
+3. Add fixture to `support/fixtures.js`
+4. `tests/newproject/` — specs
 
-## 🔬 Тестовый сценарий
+## 🔬 Test Scenario
 
-На примере [demoblaze.com](https://www.demoblaze.com) реализована e-commerce воронка:
+Using [demoblaze.com](https://www.demoblaze.com) as an example, an e-commerce funnel is implemented:
 
-**Главная → Продукт → Корзина → Чекаут → Подтверждение**
+**Home → Product → Cart → Checkout → Confirmation**
 
-Каждое действие обёрнуто в атомарный `test.step()` для точной диагностики падений. Репозиторий легко расширяется — добавляйте свои page objects и спеки по аналогии.
+Each action is wrapped in an atomic `test.step()` for precise failure diagnostics. The repository is easily extensible — add your own page objects and specs following the same pattern.
 
-## 🛠️ Технологии
+## 🛠️ Technologies
 
-- **Playwright** — браузерная автоматизация
-- **Page Object Model** — архитектура тестов
-- **Custom Reporter** — сбор и группировка результатов
-- **Node.js HTTP Server** — дашборд без зависимостей
-- **Trace Viewer** — интеграция для дебага
-
-## 📝 Лицензия
-
-MIT
+- **Playwright** — browser automation
+- **Page Object Model** — test architecture
+- **Custom Reporter** — result collection and grouping
+- **Node.js HTTP Server** — dependency-free dashboard
+- **Trace Viewer** — debugging integration
