@@ -603,7 +603,7 @@ class FunnelReporter {
       if (isLocalhost) {
         location.href = 'https://trace.playwright.dev/?trace=' + encodeURIComponent(traceUrl);
       } else {
-        const proxiedUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(traceUrl);
+        const proxiedUrl = 'https://corsproxy.org/?' + encodeURIComponent(traceUrl);
         location.href = 'https://trace.playwright.dev/?trace=' + encodeURIComponent(proxiedUrl);
       }
       btn.textContent = '✓ Viewed';
