@@ -603,7 +603,7 @@ class FunnelReporter {
       if (isLocalhost) {
         location.href = 'https://trace.playwright.dev/?trace=' + encodeURIComponent(traceUrl);
       } else {
-        const proxiedUrl = 'https://corsproxy.io/?' + encodeURIComponent(traceUrl);
+        const proxiedUrl = 'https://corsproxy.io/?' + traceUrl;
         location.href = 'https://trace.playwright.dev/?trace=' + encodeURIComponent(proxiedUrl);
       }
       btn.textContent = '✓ Viewed';
