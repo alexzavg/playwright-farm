@@ -53,6 +53,12 @@ jobs:
             --workers=${{ inputs.workers }} \
             --repeat-each=${{ inputs.repeat_each }}
 
+      - name: Prepare deployment
+        if: always()
+        run: |
+          mkdir -p report/test-results
+          cp -r test-results/* report/test-results/ 2>/dev/null || true
+
       - name: Upload report artifact
         uses: actions/upload-pages-artifact@v3
         if: always()
