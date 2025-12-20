@@ -12,6 +12,7 @@ Load testing e-commerce funnels with Playwright, Page Object Model and a custom 
 - [Architecture](#️-architecture)
 - [Test Scenario](#-test-scenario)
 - [Technologies](#️-technologies)
+- [CI/CD](#-cicd)
 
 ## 🚀 Quick Start
 
@@ -120,3 +121,32 @@ Each action is wrapped in an atomic `test.step()` for precise failure diagnostic
 - **Custom Reporter** — result collection and grouping
 - **Node.js HTTP Server** — dependency-free dashboard
 - **Trace Viewer** — debugging integration
+
+## 🚢 CI/CD
+
+### Docker
+
+Official Playwright image with pre-installed browsers:
+
+```bash
+# Build
+docker build -t playwright-farm .
+
+# Run tests
+docker run --rm playwright-farm npx playwright test tests/demoblaze/checkout.spec.js --workers=5
+```
+
+### GitHub Actions
+
+Workflow runs via `workflow_dispatch` with configurable parameters:
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `branch` | master | Branch to run tests from |
+| `specs` | tests/demoblaze/checkout.spec.js | Spec file(s) to run |
+| `workers` | 10 | Parallel workers |
+| `repeat_each` | 50 | Iterations per test |
+
+**Run**: Actions → Playwright Load Tests → Run workflow
+
+Results auto-deploy to GitHub Pages: `https://<user>.github.io/playwright-farm/`
