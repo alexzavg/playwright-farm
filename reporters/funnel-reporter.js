@@ -598,24 +598,16 @@ class FunnelReporter {
       btn.disabled = true;
       
       const isLocalhost = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+      const traceUrl = location.origin + '/' + path;
       
       if (isLocalhost) {
-        window.open('https://trace.playwright.dev/?trace=' + encodeURIComponent(location.origin + '/' + path), '_blank');
-        btn.textContent = '✓ Viewed';
-        btn.classList.add('viewed');
+        location.href = 'https://trace.playwright.dev/?trace=' + encodeURIComponent(traceUrl);
       } else {
-        const link = document.createElement('a');
-        link.href = path;
-        link.download = path.split('/').pop();
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        
-        window.open('https://trace.playwright.dev/', '_blank');
-        btn.textContent = '↓ Downloaded';
-        btn.classList.add('viewed');
-        btn.title = 'Trace downloaded. Drag & drop it into the opened trace.playwright.dev tab';
+        const proxiedUrl = 'https://corsproxy.io/?' + encodeURIComponent(traceUrl);
+        location.href = 'https://trace.playwright.dev/?trace=' + encodeURIComponent(proxiedUrl);
       }
+      btn.textContent = '✓ Viewed';
+      btn.classList.add('viewed');
       btn.disabled = false;
     }
     
