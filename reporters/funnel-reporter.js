@@ -599,12 +599,9 @@ class FunnelReporter {
 
       const tracePath = path.startsWith('/') ? path.slice(1) : path;
       const isLocalhost = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
-      const repo = 'alexzavg/playwright-farm';
-      const branch = 'gh-pages';
-
       const traceUrl = isLocalhost
         ? location.origin + '/' + tracePath
-        : 'https://raw.githubusercontent.com/' + repo + '/' + branch + '/' + tracePath;
+        : 'https://cdn.jsdelivr.net/gh/alexzavg/playwright-farm@gh-pages/' + tracePath;
 
       location.href = 'https://trace.playwright.dev/?trace=' + encodeURIComponent(traceUrl);
       btn.textContent = '✓ Viewed';
